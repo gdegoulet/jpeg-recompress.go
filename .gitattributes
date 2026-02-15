@@ -1,0 +1,6 @@
+samples/go-recompressed.PXL_20240723_195038813.jpg filter=lfs diff=lfs merge=lfs -text
+samples/go-recompressed.PXL_20240723_195038813.webp filter=lfs diff=lfs merge=lfs -text
+samples/PXL_20240723_195038813.jpg filter=lfs diff=lfs merge=lfs -text
+*.jpg filter=lfs diff=lfs merge=lfs -text
+*.jpeg filter=lfs diff=lfs merge=lfs -text
+*.webp filter=lfs diff=lfs merge=lfs -text

@@ -1,0 +1,8 @@
+jpeg-recompress.go
+go-recompress*
+*.tar.bz2
+*.sha1
+out/
+out_validate/
+todel/
+samples/

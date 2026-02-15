@@ -1,0 +1,112 @@
+# jpeg-recompress.go
+
+`jpeg-recompress.go` is a high-performance command-line utility written in Go for recompressing JPEG images. It aims to minimize file size while maintaining a strictly controlled visual quality level using industry-standard metrics.
+
+## Features
+
+- **Intelligent Recompression**: Uses a binary search algorithm to find the optimal compression level that satisfies your quality requirements.
+- **Multiple Quality Metrics**:
+    - **PSNR (Peak Signal-to-Noise Ratio)**: Default metric, good for general purpose.
+    - **SSIM (Structural Similarity Index)**: Better reflects human visual perception.
+    - **MSE (Mean Squared Error)**: Measures the average squared difference between pixels.
+- **Adaptive Sub-sampling**: Automatically adjusts pixel sampling (1x to 32x) based on image resolution to ensure fast processing of high-resolution images without compromising metric accuracy.
+- **Native Metadata Management**: 
+    - Handles JPEG APP segments (EXIF, IPTC, XMP) natively in Go.
+    - Preserves file permissions and modification times.
+    - No external tools like `exiftool` or `perl` required.
+- **JSON-First Output**: Designed for easy integration into pipelines, providing comprehensive statistics and verification results.
+- **Safety Checks**: Verifies that the output is indeed smaller or equal to the input and ensures file integrity.
+- **Idempotency**: Adds a `jpeg-recompress.go` signature in a private `APP15` JPEG segment to prevent redundant processing and generation loss without cluttering standard metadata fields like Software or Comment.
+
+## How it Works
+
+1.  **Binary Search for Quality**: The tool doesn't just "compress" the image; it searches for the lowest possible quality setting (between `min-quality` and `max-quality`) that still meets your target metric threshold (`PSNR`, `SSIM`, or `MSE`).
+2.  **Adaptive Sampling**: For large images, calculating metrics on every single pixel is slow. `jpeg-recompress.go` uses a resolution-aware sampling strategy to maintain high performance while keeping metric accuracy within acceptable margins.
+3.  **Metadata Preservation**: The tool extracts original APP segments from the source and reapplies them to the recompressed file.
+4.  **Atomic Operations**: Recompression is performed on a temporary file. The original file is only replaced if the recompression is successful and the resulting file is smaller than the original.
+
+## Build
+
+**Standard build:**
+```bash
+GOAMD64=v3 go build -ldflags="-s -w" -o jpeg-recompress.go .
+```
+
+**100% Static Build (musl via Docker):**
+Recommended for maximum portability across different Linux distributions.
+```bash
+./build-static.sh
+```
+This will produce a `jpeg-recompress.go` binary with zero dynamic dependencies.
+
+## Usage
+
+```bash
+./jpeg-recompress.go -input <file> [options]
+```
+
+### Options
+
+| Option | Description | Default |
+| :--- | :--- | :--- |
+| `-input` | **(Required)** Path to the source image. | |
+| `-output` | Path to destination. If omitted, overwrites input. | Input path |
+| `-metric` | Quality metric: `psnr`, `ssim`, `mse`. | `psnr` |
+| `-threshold` | Target quality threshold. | `38.5` |
+| `-min-quality` | Minimum quality level to attempt. | `70` |
+| `-max-quality` | Maximum quality level to attempt. | `90` |
+| `-sample` | Sub-sampling rate (1=every pixel, 0=auto). | `0` (Adaptive) |
+| `-fast` | Step-based search (step=2) for faster execution. | `false` |
+| `-keep-all-metadata` | Preserve all original metadata tags. | `false` |
+| `-skip-metadata` | Remove all metadata (except signature). | `false` |
+| `-quiet` | Suppress all output except errors. | `false` |
+| `-debug` | Show detailed trace of the search process. | `false` |
+
+## Quality Metrics Reference
+
+Choosing the right threshold depends on your balance between file size and visual fidelity.
+
+### PSNR (Peak Signal-to-Noise Ratio)
+*Higher is better. Best for general purpose.*
+
+| Usage | Threshold | Visual Quality |
+| :--- | :--- | :--- |
+| **Archivage / Pro** | **38.5 dB** | Secure, indistinguishable from original. |
+| **Standard / Web HD** | **37.5 dB** | Excellent balance, good reduction. |
+| **Aggressive Web** | **36.5 dB** | Significant gains, quality remains clean. |
+
+### SSIM (Structural Similarity)
+*Higher is better. Best for matching human perception.*
+
+| Usage | Threshold | Visual Quality |
+| :--- | :--- | :--- |
+| **Archivage / Pro** | **0.995** | Perfect structure, no visible loss. |
+| **Standard / Web HD** | **0.990** | High fidelity, standard for HD web. |
+| **Aggressive Web** | **0.980** | Great for mobile/social media. |
+
+### MSE (Mean Squared Error)
+*Lower is better. Mathematical pixel-to-pixel difference.*
+
+| Usage | Threshold | Visual Quality |
+| :--- | :--- | :--- |
+| **Archivage / Pro** | **0.00005** | Mathematical near-identity. |
+| **Standard / Web HD** | **0.00010** | Professional grade. |
+| **Aggressive Web** | **0.00050** | Acceptable noise for web assets. |
+
+## Validation
+
+A validation script is provided to verify metadata preservation and idempotency across different modes:
+```bash
+./validate-jpeg.sh
+```
+
+## Exit Codes
+
+| Code | Status | Description |
+| :--- | :--- | :--- |
+| **0** | **SUCCESS** | Successfully recompressed, skipped (idempotency), or copied (no gain possible with separate output). |
+| **1** | **FAILURE** | Critical error, invalid input, or recompression produced a larger file without a separate output path. |
+
+## License
+
+This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.

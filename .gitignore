@@ -1,0 +1,11 @@
+images/*
+out/*
+out_validate
+out_validate/*
+todel
+jpeg-recompress.go
+jpeg-recompress.go-*
+go-recompress
+go-recompress-static
+go-recompress.tar.bz2.sha1sum
+go-recompress.tar.bz2
