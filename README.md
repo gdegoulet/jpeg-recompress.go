@@ -107,6 +107,14 @@ A validation script is provided to verify metadata preservation and idempotency 
 | **0** | **SUCCESS** | Successfully recompressed, skipped (idempotency), or copied (no gain possible with separate output). |
 | **1** | **FAILURE** | Critical error, invalid input, or recompression produced a larger file without a separate output path. |
 
+## Disclaimer
+
+**IMPORTANT: This tool performs in-place modifications when no separate output path is specified.**
+
+- **No Backups**: `jpeg-recompress.go` does **NOT** create automatic backups of your source images. If you overwrite your input files, the original data is permanently lost.
+- **Responsibility**: You are solely responsible for any data loss or damage resulting from the use of this tool. It is highly recommended to test on a copy of your data or always specify a separate output directory.
+- **Warranty**: This software is provided "as is", without warranty of any kind, express or implied.
+
 ## License
 
 This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
