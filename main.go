@@ -317,6 +317,27 @@ func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, keepA
 	targetPath := dst
 	if targetPath == "" { targetPath = absSrc }
 
+	// Size gain check: if no improvement, skip or copy original
+	if bestData == nil || int64(len(bestData)) >= res.SizeBefore {
+		if dst != "" {
+			_ = os.MkdirAll(filepath.Dir(targetPath), 0755)
+			_ = copyFile(absSrc, targetPath)
+			_ = os.Chtimes(targetPath, originalModTime, originalModTime)
+			res.Copied = true
+			res.SizeAfter = res.SizeBefore
+		} else {
+			res.Skipped = true
+			res.SizeAfter = res.SizeBefore
+		}
+
+		if res.Skipped || res.Copied {
+			res.Duration = time.Since(startTime)
+			var fInfo os.FileInfo
+			if res.Copied { fInfo, _ = os.Stat(targetPath) } else if dst == "" { fInfo, _ = os.Stat(absSrc) }
+			return res, actualSample, srcInfo, fInfo
+		}
+	}
+
 	// Final rendering phase: if Jpegli is requested, we map the quality
 	if useJpegli && bestData != nil {
 		liQ := mapStdToJpegli(bestQ)
@@ -371,8 +392,8 @@ func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, keepA
 			return res, actualSample, srcInfo, nil
 		}
 	}
-	if err := os.Rename(tempPath, targetPath); err != nil {
-		res.Err = fmt.Errorf("error renaming final file: %v", err)
+	if err := moveFile(tempPath, targetPath); err != nil {
+		res.Err = fmt.Errorf("error moving final file: %v", err)
 		return res, actualSample, srcInfo, nil
 	}
 	
@@ -519,10 +540,30 @@ func countMetadata(path string) int {
 	if err != nil { return 0 }
 	count := 0
 	
-	// JPEG version: count APP or COM segments
-	for i := 0; i < len(data)-1; i++ {
-		if data[i] == 0xFF && (data[i+1] >= 0xE0 && data[i+1] <= 0xFE) {
-			count++
+	// JPEG version: count APP or COM segments properly
+	for i := 0; i < len(data)-1; {
+		if data[i] == 0xFF {
+			marker := data[i+1]
+			if marker == 0x00 || marker == 0xFF {
+				i++
+				continue
+			}
+			if marker == 0xD8 { // SOI
+				i += 2
+				continue
+			}
+			if marker == 0xDA || marker == 0xC0 || marker == 0xC2 { // SOS or SOF
+				break
+			}
+			if i+3 >= len(data) { break }
+			length := int(data[i+2])<<8 | int(data[i+3])
+			
+			if marker >= 0xE0 && marker <= 0xFE {
+				count++
+			}
+			i += 2 + length
+		} else {
+			i++
 		}
 	}
 	return count
@@ -544,6 +585,20 @@ func copyFile(src, dst string) error {
 	if err != nil { return err }
 
 	return os.Chmod(dst, srcInfo.Mode())
+}
+
+func moveFile(src, dst string) error {
+	// Tente un renommage atomique (rapide, même partition)
+	err := os.Rename(src, dst)
+	if err == nil {
+		return nil
+	}
+
+	// Si erreur de lien cross-device, on copie puis supprime
+	if err := copyFile(src, dst); err != nil {
+		return err
+	}
+	return os.Remove(src)
 }
 
 func copyJPEGMetadata(src, dst string, keepAll, skipMeta bool) error {
