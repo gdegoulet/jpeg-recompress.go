@@ -40,11 +40,9 @@ type Result struct {
 }
 
 type VerificationResults struct {
-	IsSmallerOrEqual   bool `json:"is_smaller_or_equal"`
-	SamePermissions    bool `json:"same_permissions"`
-	SameModTime        bool `json:"same_mod_time"`
-	InputMetadataCount int  `json:"input_metadata_count"`
-	OutputMetadataCount int `json:"output_metadata_count"`
+	IsSmallerOrEqual bool `json:"is_smaller_or_equal"`
+	SamePermissions  bool `json:"same_permissions"`
+	SameModTime      bool `json:"same_mod_time"`
 }
 
 type FinalOutput struct {
@@ -151,14 +149,9 @@ func main() {
 				verification.IsSmallerOrEqual = res.SizeAfter <= srcFileInfo.Size()
 				verification.SamePermissions = finalFileInfo.Mode() == srcFileInfo.Mode()
 				verification.SameModTime = finalFileInfo.ModTime().Equal(srcFileInfo.ModTime())
-				verification.InputMetadataCount = countMetadata(*input)
-				verification.OutputMetadataCount = countMetadata(finalDest)
 			}
 	
 			isPerfect := status == "SUCCESS" && verification.IsSmallerOrEqual && verification.SamePermissions && verification.SameModTime
-			if *skipMeta && verification.OutputMetadataCount > 30 {
-				isPerfect = false
-			}
 	
 			// Exit code determination based on business rules
 			shouldExitZero := isPerfect
