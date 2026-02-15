@@ -16,6 +16,10 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/gen2brain/jpegli"
+	"github.com/jasonmoo/go-butteraugli"
+	"golang.org/x/image/draw"
 )
 
 const Signature = "jpeg-recompress.go"
@@ -62,21 +66,26 @@ type FinalOutput struct {
 }
 
 func main() {
-	input := flag.String("input", "", "Fichier source (obligatoire)")
-	output := flag.String("output", "", "Fichier destination (optionnel)")
-	metric := flag.String("metric", "psnr", "Métrique : psnr, ssim ou mse")
-	targetQuality := flag.Float64("threshold", -1.0, "Seuil (Défaut: PSNR=38.5, SSIM=0.99, MSE=0.99995)")
-	sample := flag.Int("sample", 0, "Sous-échantillonnage (0=auto)")
-	minQ := flag.Int("min-quality", 70, "Qualité min (défaut 70)")
-	maxQ := flag.Int("max-quality", 90, "Qualité max (défaut 90)")
-	keepAll := flag.Bool("keep-all-metadata", false, "Garder tout")
-	skipMeta := flag.Bool("skip-metadata", false, "Supprimer les métadonnées")
-	quiet := flag.Bool("quiet", false, "Silence complet")
-	debug := flag.Bool("debug", false, "Mode debug")
-	fast := flag.Bool("fast", false, "Mode rapide")
-	version := flag.Bool("version", false, "Afficher la version")
+	input := flag.String("input", "", "Source file (required)")
+	output := flag.String("output", "", "Destination file (optional)")
+	metric := flag.String("metric", "psnr", "Metric: psnr, ssim, mse or butteraugli")
+	targetQuality := flag.Float64("threshold", -1.0, "Threshold (Default: PSNR=38.5, SSIM=0.99, MSE=0.99995)")
+	sample := flag.Int("sample", 0, "Sub-sampling (0=auto)")
+	minQ := flag.Int("min-quality", 70, "Minimum quality (default 70)")
+	maxQ := flag.Int("max-quality", 90, "Maximum quality (default 90)")
+	keepAll := flag.Bool("keep-all-metadata", false, "Keep all metadata")
+	skipMeta := flag.Bool("skip-metadata", false, "Strip all metadata")
+	quiet := flag.Bool("quiet", false, "Quiet mode")
+	debug := flag.Bool("debug", false, "Debug mode")
+	fast := flag.Bool("fast", false, "Fast mode")
+	version := flag.Bool("version", false, "Show version")
+	useJpegli := flag.Bool("jpegli", false, "Use Jpegli encoder (experimental)")
 
 	flag.Parse()
+
+	if *useJpegli {
+		*metric = "butteraugli"
+	}
 
 	if *version {
 		fmt.Printf("jpeg-recompress.go version %s\n", Version)
@@ -92,7 +101,7 @@ func main() {
 	}
 
 	if *input == "" {
-		fmt.Fprintf(os.Stderr, `{"error": "L'option -input est obligatoire"}`+"\n")
+		fmt.Fprintf(os.Stderr, `{"error": "The -input option is required"}`+"\n")
 		os.Exit(1)
 	}
 
@@ -102,6 +111,8 @@ func main() {
 			*targetQuality = 0.99
 		case "mse":
 			*targetQuality = 0.99995
+		case "butteraugli":
+			*targetQuality = 1.0
 		default: // psnr
 			*targetQuality = 38.5
 		}
@@ -109,7 +120,7 @@ func main() {
 
 	local_startTime = time.Now()
 	if err := checkDependencies(); err != nil {
-		fmt.Fprintf(os.Stderr, `{"error": "Dépendances manquantes", "details": "%v"}`+"\n", err)
+		fmt.Fprintf(os.Stderr, `{"error": "Missing dependencies", "details": "%v"}`+"\n", err)
 		os.Exit(1)
 	}
 	duration = time.Since(local_startTime)
@@ -121,7 +132,7 @@ func main() {
 	if *debug {
 		fmt.Fprintf(os.Stderr, "[DEBUG] Computing %s\n", *input)
 	}
-	res, actualSample, srcFileInfo, finalFileInfo := processSingleFile(*input, *output, *targetQuality, *minQ, *maxQ, *keepAll, *skipMeta, *metric, *sample, *debug, *fast)
+	res, actualSample, srcFileInfo, finalFileInfo := processSingleFile(*input, *output, *targetQuality, *minQ, *maxQ, *keepAll, *skipMeta, *metric, *sample, *debug, *fast, *useJpegli)
 
 	status := "SUCCESS"
 	if res.Skipped {
@@ -147,9 +158,9 @@ func main() {
 			isPerfect := status == "SUCCESS" && verification.IsSmallerOrEqual && verification.SamePermissions && verification.SameModTime
 			if *skipMeta && verification.OutputMetadataCount > 30 {
 				isPerfect = false
-			} // 30 est une marge pour les tags système inévitables (largeur, hauteur, type, etc.)
+			}
 	
-			// Détermination du code de sortie selon les règles métier
+			// Exit code determination based on business rules
 			shouldExitZero := isPerfect
 			if !isPerfect && res.Err == nil {
 				if *output == "" && status == "SKIPPED" {
@@ -161,7 +172,7 @@ func main() {
 
 			if !*quiet {
 				if res.Err != nil {
-					fmt.Fprintf(os.Stderr, `{"error": "Traitement échoué", "file": "%s", "details": "%v"}`+"\n", *input, res.Err)
+					fmt.Fprintf(os.Stderr, `{"error": "Processing failed", "file": "%s", "details": "%v"}`+"\n", *input, res.Err)
 					os.Exit(1)
 				}
 		out := FinalOutput{
@@ -195,7 +206,19 @@ func getAdaptiveSample(b image.Rectangle, debug bool) int {
 	}
 }
 
-func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, keepAll, skipMeta bool, metric string, sample int, debug, fast bool) (Result, int, os.FileInfo, os.FileInfo) {
+// mapStdToJpegli converts a standard JPEG quality to a visually equivalent Jpegli quality
+func mapStdToJpegli(stdQ int) int {
+	switch {
+	case stdQ >= 95: return stdQ - 2
+	case stdQ >= 90: return stdQ - 4
+	case stdQ >= 85: return stdQ - 6
+	case stdQ >= 80: return stdQ - 8
+	case stdQ >= 75: return stdQ - 10
+	default: return stdQ - 12
+	}
+}
+
+func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, keepAll, skipMeta bool, metric string, sample int, debug, fast, useJpegli bool) (Result, int, os.FileInfo, os.FileInfo) {
 	startTime := time.Now()
 	res := Result{}
 	absSrc, _ := filepath.Abs(src)
@@ -246,6 +269,8 @@ func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, keepA
 	step := 1
 	if fast { step = 2 }
 
+	// Search phase: we ALWAYS use the standard encoder for speed
+	// and as a baseline for the metric threshold.
 	for lowQ <= highQ {
 		currentQ := (lowQ + highQ) / 2
 		if step > 1 { currentQ = (currentQ / step) * step }
@@ -253,29 +278,36 @@ func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, keepA
 		local_startTime = time.Now()
 		var buf bytes.Buffer
 		_ = jpeg.Encode(&buf, img, &jpeg.Options{Quality: currentQ})
+		
 		duration = time.Since(local_startTime)
-		if debug { fmt.Fprintf(os.Stderr,"[DEBUG] currentQ=%d Encode to jpg duration=%s\n", currentQ, duration.Round(time.Millisecond).String()) }
+		if debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] currentQ=%d Encode to std-jpg duration=%s\n", currentQ, duration.Round(time.Millisecond).String()) 
+		}
 
 		local_startTime = time.Now()
 		compImg, _, err := image.Decode(bytes.NewReader(buf.Bytes()))
 		duration = time.Since(local_startTime)
-        if debug { fmt.Fprintf(os.Stderr,"[DEBUG] currentQ=%d Decode duration=%s\n", currentQ, duration.Round(time.Millisecond).String()) }
 		if err != nil || compImg == nil { lowQ = currentQ + step; continue }
 
-		local_startTime = time.Now()
 		var sim float64
 		switch strings.ToLower(metric) {
 		case "ssim":
 			sim = calculateSSIM(img, compImg, actualSample)
 		case "mse":
 			sim = 1.0 - calculateMSE(img, compImg, actualSample)
+		case "butteraugli":
+			sim = calculateButteraugli(img, compImg)
 		default:
 			sim = calculatePSNR(img, compImg, actualSample)
 		}
-		duration = time.Since(local_startTime)
-        if debug { fmt.Fprintf(os.Stderr,"[DEBUG] currentQ=%d Similarity Compute sim=%f threshold=%f duration=%s\n", currentQ, sim, threshold, duration.Round(time.Millisecond).String()) }
 
-		if sim < threshold {
+		// Butteraugli: smaller is better, others: larger is better
+		isBetter := sim >= threshold
+		if strings.ToLower(metric) == "butteraugli" {
+			isBetter = sim <= threshold
+		}
+
+		if !isBetter {
 			lowQ = currentQ + step
 		} else {
 			bestQ = currentQ; highQ = currentQ - step; bestData = buf.Bytes()
@@ -285,22 +317,24 @@ func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, keepA
 	targetPath := dst
 	if targetPath == "" { targetPath = absSrc }
 
-	if bestData == nil || int64(len(bestData)) >= res.SizeBefore {
-		if dst != "" {
-			_ = os.MkdirAll(filepath.Dir(targetPath), 0755)
-			_ = copyFile(absSrc, targetPath)
-			_ = os.Chtimes(targetPath, originalModTime, originalModTime)
-			res.Copied = true
-		} else {
-			res.Skipped = true
+	// Final rendering phase: if Jpegli is requested, we map the quality
+	if useJpegli && bestData != nil {
+		liQ := mapStdToJpegli(bestQ)
+		if debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Calibrating Jpegli: StdQ %d -> JpegliQ %d\n", bestQ, liQ)
 		}
-
-		if res.Skipped || res.Copied {
-			res.SizeAfter = res.SizeBefore; res.Duration = time.Since(startTime)
-			var fInfo os.FileInfo
-			if res.Copied { fInfo, _ = os.Stat(targetPath) } else if dst == "" { fInfo, _ = os.Stat(absSrc) }
-			return res, actualSample, srcInfo, fInfo
+		var buf bytes.Buffer
+		local_startTime = time.Now()
+		_ = jpegli.Encode(&buf, img, &jpegli.EncodingOptions{
+			Quality:           liQ,
+			ChromaSubsampling: image.YCbCrSubsampleRatio420,
+		})
+		duration = time.Since(local_startTime)
+		if debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Jpegli Final Encode duration=%s\n", duration.Round(time.Millisecond).String())
 		}
+		bestData = buf.Bytes()
+		bestQ = liQ // Update for final JSON output
 	}
 
 	finalImg, _, _ := image.Decode(bytes.NewReader(bestData))
@@ -318,7 +352,7 @@ func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, keepA
 
 	tempPath := absSrc + ".tmp_recompress"
 	if err := os.WriteFile(tempPath, bestData, 0644); err != nil {
-		res.Err = fmt.Errorf("erreur écriture temp: %v", err)
+		res.Err = fmt.Errorf("error writing temp file: %v", err)
 		return res, actualSample, srcInfo, nil
 	}
 	defer os.Remove(tempPath)
@@ -327,18 +361,18 @@ func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, keepA
 
 	if dst != "" {
 		if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
-			res.Err = fmt.Errorf("erreur création dossier: %v", err)
+			res.Err = fmt.Errorf("error creating directory: %v", err)
 			return res, actualSample, srcInfo, nil
 		}
 	}
 	if targetPath == absSrc {
 		if err := os.Remove(absSrc); err != nil {
-			res.Err = fmt.Errorf("erreur suppression source: %v", err)
+			res.Err = fmt.Errorf("error deleting source: %v", err)
 			return res, actualSample, srcInfo, nil
 		}
 	}
 	if err := os.Rename(tempPath, targetPath); err != nil {
-		res.Err = fmt.Errorf("erreur renommage final: %v", err)
+		res.Err = fmt.Errorf("error renaming final file: %v", err)
 		return res, actualSample, srcInfo, nil
 	}
 	
@@ -423,6 +457,36 @@ func getLuminance(c color.Color) float64 {
 	return 0.299*float64(r>>8) + 0.587*float64(g>>8) + 0.114*float64(b>>8)
 }
 
+func calculateButteraugli(img1, img2 image.Image) float64 {
+	// Optimization: Butteraugli is extremely slow on large images.
+	// We downsample to a maximum of 0.5 Megapixels for analysis.
+	// This preserves perceptual patterns while being ~10-20x faster.
+	const maxPixels = 500000
+	b := img1.Bounds()
+	origPixels := b.Dx() * b.Dy()
+
+	if origPixels <= maxPixels {
+		dist, _ := butteraugli.CompareImages(img1, img2)
+		return dist
+	}
+
+	// Calculate scaling factor
+	scale := math.Sqrt(float64(maxPixels) / float64(origPixels))
+	newW, newH := int(float64(b.Dx())*scale), int(float64(b.Dy())*scale)
+	newRect := image.Rect(0, 0, newW, newH)
+
+	// Create downsampled images
+	small1 := image.NewRGBA(newRect)
+	small2 := image.NewRGBA(newRect)
+
+	// BiLinear is a good balance between speed and quality for perceptual analysis
+	draw.BiLinear.Scale(small1, newRect, img1, b, draw.Over, nil)
+	draw.BiLinear.Scale(small2, newRect, img2, b, draw.Over, nil)
+
+	dist, _ := butteraugli.CompareImages(small1, small2)
+	return dist
+}
+
 func applyMetadata(src, dst string, keepAll, skipMeta bool) {
 	ext := strings.ToLower(filepath.Ext(src))
 	if ext == ".jpg" || ext == ".jpeg" {
@@ -434,7 +498,7 @@ func isAlreadyProcessed(src string) bool {
 	data, err := os.ReadFile(src)
 	if err != nil { return false }
 	
-	// On cherche au début (JPEG COM)
+	// Look at the beginning (JPEG COM)
 	limit := 32768
 	if len(data) < limit { limit = len(data) }
 	if strings.Contains(string(data[:limit]), Signature) {
@@ -446,7 +510,7 @@ func isAlreadyProcessed(src string) bool {
 
 
 func checkDependencies() error {
-	// Plus aucune dépendance externe requise (tout est natif Go pour JPEG)
+	// No external dependencies required (all native Go for JPEG)
 	return nil
 }
 
@@ -455,7 +519,7 @@ func countMetadata(path string) int {
 	if err != nil { return 0 }
 	count := 0
 	
-	// Version JPEG : on compte les segments APP ou COM
+	// JPEG version: count APP or COM segments
 	for i := 0; i < len(data)-1; i++ {
 		if data[i] == 0xFF && (data[i+1] >= 0xE0 && data[i+1] <= 0xFE) {
 			count++

@@ -9,6 +9,7 @@
     - **PSNR (Peak Signal-to-Noise Ratio)**: Default metric, good for general purpose.
     - **SSIM (Structural Similarity Index)**: Better reflects human visual perception.
     - **MSE (Mean Squared Error)**: Measures the average squared difference between pixels.
+    - **Butteraugli**: Advanced psychovisual metric by Google (most accurate, but slow).
 - **Adaptive Sub-sampling**: Automatically adjusts pixel sampling (1x to 32x) based on image resolution to ensure fast processing of high-resolution images without compromising metric accuracy.
 - **Native Metadata Management**: 
     - Handles JPEG APP segments (EXIF, IPTC, XMP) natively in Go.
@@ -52,10 +53,11 @@ This will produce a `jpeg-recompress.go` binary with zero dynamic dependencies.
 | `-input` | **(Required)** Path to the source image. | |
 | `-output` | Path to destination. If omitted, overwrites input. | Input path |
 | `-metric` | Quality metric: `psnr`, `ssim`, `mse`. | `psnr` |
-| `-threshold` | Target quality threshold. | `38.5` |
+| `-threshold` | Target quality threshold. | `38.5` (STD), `42.0` (Jpegli) |
 | `-min-quality` | Minimum quality level to attempt. | `70` |
 | `-max-quality` | Maximum quality level to attempt. | `90` |
 | `-sample` | Sub-sampling rate (1=every pixel, 0=auto). | `0` (Adaptive) |
+| `-jpegli` | Use Jpegli encoder for superior compression (up to 35% better, **experimental**). Forces `-metric butteraugli`. | `false` |
 | `-fast` | Step-based search (step=2) for faster execution. | `false` |
 | `-keep-all-metadata` | Preserve all original metadata tags. | `false` |
 | `-skip-metadata` | Remove all metadata (except signature). | `false` |
@@ -92,6 +94,29 @@ Choosing the right threshold depends on your balance between file size and visua
 | **Archivage / Pro** | **0.00005** | Mathematical near-identity. |
 | **Standard / Web HD** | **0.00010** | Professional grade. |
 | **Aggressive Web** | **0.00050** | Acceptable noise for web assets. |
+
+### Butteraugli
+*Lower is better. Perceptual distance.*
+
+| Usage | Threshold | Visual Quality |
+| :--- | :--- | :--- |
+| **Archivage / Pro** | **1.0** | Visually lossless. |
+| **Standard / Web HD** | **1.5** | High fidelity. |
+| **Aggressive Web** | **2.0** | Clean, but noticeable changes. |
+
+## Benchmark: Standard vs Jpegli
+
+Performance comparison using default settings: **Standard (PSNR 38.5)** vs **Jpegli (Butteraugli 1.0)**.
+
+| Image | Standard Gain | Jpegli Gain | Difference |
+| :--- | :--- | :--- | :--- |
+| `00093.jpg` | 39.1% | **51.2%** | **+12.1%** |
+| `00094.jpg` | 53.3% | **58.2%** | **+4.9%** |
+| `test.jpg` | 7.1% | **13.3%** | **+6.2%** |
+| `00012.jpg` | 32.4% | **39.0%** | **+6.6%** |
+| `example.jpg` | 0% | **67.9%** | **+67.9%** |
+
+*Note: Jpegli offers significantly better compression ratios while maintaining indistinguishable visual quality by focusing on perceptual rather than purely mathematical accuracy.*
 
 ## Validation
 
