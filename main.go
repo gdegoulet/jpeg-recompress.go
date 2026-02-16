@@ -176,7 +176,7 @@ func main() {
 			SizeBefore: res.SizeBefore, SizeAfter: res.SizeAfter,
 			Metric: strings.ToUpper(*metric), Threshold: *targetQuality, Sample: actualSample,
 			MSE: res.MSE, SSIM: res.SSIM, PSNR: math.Round(res.PSNR*10) / 10,
-			Butteraugli:   math.Round(res.Butteraugli*100) / 100,
+			Butteraugli:   math.Round(res.Butteraugli*1000) / 1000,
 			ExecutionTime: res.Duration.Round(time.Millisecond).String(),
 			Test:          verification,
 		}
@@ -310,10 +310,14 @@ func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, keepA
 			isBetter = sim <= threshold
 		}
 
-		if !isBetter {
-			lowQ = currentQ + step
+		if isBetter {
+			// Current quality meets threshold, try even lower quality to save more space
+			bestQ = currentQ
+			highQ = currentQ - step
+			bestData = buf.Bytes()
 		} else {
-			bestQ = currentQ; highQ = currentQ - step; bestData = buf.Bytes()
+			// Current quality does NOT meet threshold, must increase quality
+			lowQ = currentQ + step
 		}
 	}
 
