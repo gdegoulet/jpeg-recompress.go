@@ -202,18 +202,6 @@ func getAdaptiveSample(b image.Rectangle, debug bool) int {
 	}
 }
 
-// mapStdToJpegli converts a standard JPEG quality to a visually equivalent Jpegli quality
-func mapStdToJpegli(stdQ int) int {
-	switch {
-	case stdQ >= 95: return stdQ - 2
-	case stdQ >= 90: return stdQ - 4
-	case stdQ >= 85: return stdQ - 6
-	case stdQ >= 80: return stdQ - 8
-	case stdQ >= 75: return stdQ - 10
-	default: return stdQ - 12
-	}
-}
-
 func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, keepAll, skipMeta bool, metric string, sample int, debug, fast, useJpegli bool) (Result, int, os.FileInfo, os.FileInfo) {
 	startTime := time.Now()
 	res := Result{}
@@ -265,19 +253,28 @@ func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, keepA
 	step := 1
 	if fast { step = 2 }
 
-	// Search phase: we ALWAYS use the standard encoder for speed
-	// and as a baseline for the metric threshold.
+	// Search phase
 	for lowQ <= highQ {
 		currentQ := (lowQ + highQ) / 2
 		if step > 1 { currentQ = (currentQ / step) * step }
 
 		local_startTime = time.Now()
 		var buf bytes.Buffer
-		_ = jpeg.Encode(&buf, img, &jpeg.Options{Quality: currentQ})
+		
+		if useJpegli {
+			_ = jpegli.Encode(&buf, img, &jpegli.EncodingOptions{
+				Quality:           currentQ,
+				ChromaSubsampling: image.YCbCrSubsampleRatio420,
+			})
+		} else {
+			_ = jpeg.Encode(&buf, img, &jpeg.Options{Quality: currentQ})
+		}
 		
 		duration = time.Since(local_startTime)
 		if debug {
-			fmt.Fprintf(os.Stderr, "[DEBUG] currentQ=%d Encode to std-jpg duration=%s\n", currentQ, duration.Round(time.Millisecond).String()) 
+			encoderName := "std-jpg"
+			if useJpegli { encoderName = "jpegli" }
+			fmt.Fprintf(os.Stderr, "[DEBUG] currentQ=%d Encode to %s duration=%s\n", currentQ, encoderName, duration.Round(time.Millisecond).String()) 
 		}
 
 		local_startTime = time.Now()
@@ -334,32 +331,9 @@ func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, keepA
 		}
 	}
 
-	// Final rendering phase: if Jpegli is requested, we map the quality
-	if useJpegli && bestData != nil {
-		liQ := mapStdToJpegli(bestQ)
-		// Ensure Jpegli quality respects the user-defined bounds
-		if liQ < minQ {
-			liQ = minQ
-		}
-		if liQ > maxQ {
-			liQ = maxQ
-		}
-		if debug {
-			fmt.Fprintf(os.Stderr, "[DEBUG] Calibrating Jpegli: StdQ %d -> JpegliQ %d (clamped to [%d, %d])\n", bestQ, liQ, minQ, maxQ)
-		}
-		var buf bytes.Buffer
-		local_startTime = time.Now()
-		_ = jpegli.Encode(&buf, img, &jpegli.EncodingOptions{
-			Quality:           liQ,
-			ChromaSubsampling: image.YCbCrSubsampleRatio420,
-		})
-		duration = time.Since(local_startTime)
-		if debug {
-			fmt.Fprintf(os.Stderr, "[DEBUG] Jpegli Final Encode duration=%s\n", duration.Round(time.Millisecond).String())
-		}
-		bestData = buf.Bytes()
-		bestQ = liQ // Update for final JSON output
-	}
+	// Final rendering phase: if Jpegli is requested, bestData already contains the Jpegli encode
+	// and bestQ is already the Jpegli quality. No further action needed here.
+
 
 	finalImg, _, _ := image.Decode(bytes.NewReader(bestData))
 	if finalImg == nil {
