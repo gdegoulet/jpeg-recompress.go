@@ -2,6 +2,17 @@
 
 `jpeg-recompress.go` is a high-performance command-line utility written in Go for recompressing JPEG images. It aims to minimize file size while maintaining a strictly controlled visual quality level using industry-standard metrics.
 
+## Tools
+
+This project provides two main tools:
+
+1.  **`jpeg-recompress.go`**: An intelligent recompressor that automatically finds the best quality setting to reach a target visual threshold.
+2.  **`jpegli-encode.go`**: A direct encoder using the Jpegli library for high-efficiency JPEG encoding at a fixed quality level.
+
+---
+
+## jpeg-recompress.go
+
 ## Features
 
 - **Intelligent Recompression**: Uses a binary search algorithm to find the optimal compression level that satisfies your quality requirements.
@@ -63,6 +74,40 @@ This will produce a `jpeg-recompress.go` binary with zero dynamic dependencies.
 | `-skip-metadata` | Remove all metadata (except signature). | `false` |
 | `-quiet` | Suppress all output except errors. | `false` |
 | `-debug` | Show detailed trace of the search process. | `false` |
+
+---
+
+## jpegli-encode.go
+
+`jpegli-encode.go` is a simple and efficient tool to encode images directly using the [Jpegli](https://github.com/google/jpegli) library at a specific quality level.
+
+### Features
+
+- **High-Efficiency Encoding**: Leverages Jpegli's advanced psychovisual optimizations for better quality-to-size ratios.
+- **Metadata Filtering**: Automatically strips "heavy" and non-essential metadata (Extended XMP, Photoshop previews, FPXR) while preserving critical tags (EXIF, IPTC, ICC Profiles).
+- **Unix Integration**: Preserves original file permissions and modification times.
+- **Safe Operations**: Uses atomic writes via temporary files.
+
+### Usage
+
+```bash
+./jpegli-encode.go -input <file> [-output <file>] [-quality <1-100>]
+```
+
+| Option | Description | Default |
+| :--- | :--- | :--- |
+| `-input` | **(Required)** Path to the source image (JPEG, PNG, GIF). | |
+| `-output` | Path to destination. If omitted, overwrites input. | Input path |
+| `-quality` | Target encoding quality (1 to 100). | `90` |
+
+### Example output
+
+```text
+Successfully encoded image.jpg to image.jpg (quality 85)
+Size: 4.12 MB -> 2.56 MB (Gain: 37.8%)
+```
+
+---
 
 ## Quality Metrics Reference
 
