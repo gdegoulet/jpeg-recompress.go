@@ -99,7 +99,7 @@ This will produce a `jpeg-recompress.go` binary with zero dynamic dependencies.
 | `-input` | **(Required)** Path to the source image (JPEG, PNG, GIF). | |
 | `-output` | Path to destination. If omitted, overwrites input. | Input path |
 | `-quality` | Target encoding quality (1 to 100). | `90` |
-| `-chroma_subsampling` | Chroma subsampling: `444`, `422`, `420`. | `420` |
+| `-chroma_subsampling` | Chroma subsampling: `444`, `422`, `420`. | `444` |
 
 ### Example output
 
