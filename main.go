@@ -173,9 +173,8 @@ func main() {
 			// Exit code determination based on business rules
 			shouldExitZero := isPerfect
 			if !isPerfect && res.Err == nil {
-				if *output == "" && status == "SKIPPED" {
-					shouldExitZero = true
-				} else if *output != "" && status == "COPIED_NO_GAIN" {
+				// We consider it a "soft success" if we didn't gain anything but handled it safely
+				if status == "SKIPPED" || status == "COPIED_NO_GAIN" {
 					shouldExitZero = true
 				}
 			}
@@ -337,7 +336,11 @@ func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, ratio
 	}
 
 	targetPath := dst
-	if targetPath == "" { targetPath = absSrc }
+	if targetPath == "" {
+		targetPath = absSrc
+	} else {
+		targetPath, _ = filepath.Abs(targetPath)
+	}
 
 	// Decode best image to calculate final metrics
 	finalImg, _, _ := image.Decode(bytes.NewReader(bestData))
@@ -359,6 +362,33 @@ func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, ratio
 	if err := applyMetadata(absSrc, tempPath, keepAll, skipMeta); err != nil {
 		res.Err = fmt.Errorf("error applying metadata: %v", err)
 		return res, actualSample, srcInfo, nil
+	}
+
+	tempInfo, _ := os.Stat(tempPath)
+
+	// Check if we actually gained something
+	if tempInfo.Size() >= srcInfo.Size() {
+		if debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] No gain (new: %s, old: %s).\n", formatSize(tempInfo.Size()), formatSize(srcInfo.Size()))
+		}
+		if targetPath == absSrc {
+			res.Skipped = true
+			res.SizeAfter = srcInfo.Size()
+			res.Duration = time.Since(startTime)
+			return res, actualSample, srcInfo, srcInfo
+		} else {
+			_ = os.MkdirAll(filepath.Dir(targetPath), 0755)
+			if err := copyFile(absSrc, targetPath); err != nil {
+				res.Err = fmt.Errorf("error copying original to destination: %v", err)
+				return res, actualSample, srcInfo, nil
+			}
+			_ = os.Chtimes(targetPath, originalModTime, originalModTime)
+			res.Copied = true
+			res.SizeAfter = srcInfo.Size()
+			res.Duration = time.Since(startTime)
+			finalInfo, _ := os.Stat(targetPath)
+			return res, actualSample, srcInfo, finalInfo
+		}
 	}
 
 	// Prepare destination directory if needed
