@@ -1,19 +1,20 @@
 #!/bin/bash
 set -e
 
-VERSION="1.2.2"
-BINARY="jpeg-recompress.go"
-ARCHIVE="${BINARY}-v${VERSION}-linux-x86_64.tar.bz2"
+VERSION="1.3.0"
+BINARY1="jpeg-recompress.go"
+BINARY2="jpegli-encode.go"
+ARCHIVE="jpeg-recompress.go-v${VERSION}-linux-x86_64.tar.bz2"
 
 echo "--- Starting Release Process for v${VERSION} ---"
 
-# 1. Build the static binary using the existing script
-echo "Building static binary v${VERSION}..."
+# 1. Build the static binaries using the existing script
+echo "Building static binaries v${VERSION}..."
 ./build-static.sh "${VERSION}"
 
 # 2. Create the tar.bz2 archive
 echo "Creating archive: ${ARCHIVE}..."
-tar -cjf "${ARCHIVE}" "${BINARY}"
+tar -cjf "${ARCHIVE}" "${BINARY1}" "${BINARY2}"
 
 # 3. Generate SHA1 sum
 echo "Generating SHA1 sum..."

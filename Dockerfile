@@ -15,12 +15,13 @@ COPY . .
 
 ARG VERSION=dev
 
-# Build fully static binary
-# CGO_ENABLED=0 is used because we only use Go standard library for JPEG
-RUN GOAMD64=v3 CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.Version=${VERSION}" -o jpeg-recompress.go .
+# Build fully static binaries
+RUN GOAMD64=v3 CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.Version=${VERSION}" -o jpeg-recompress.go main.go
+RUN GOAMD64=v3 CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o jpegli-encode.go jpegli_encode.go
 
 # Final stage: minimal scratch image
 FROM scratch
 COPY --from=builder /app/jpeg-recompress.go /jpeg-recompress.go
+COPY --from=builder /app/jpegli-encode.go /jpegli-encode.go
 
 ENTRYPOINT ["/jpeg-recompress.go"]
