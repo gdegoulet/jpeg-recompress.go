@@ -295,9 +295,9 @@ func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, keepA
 			currentSize := int64(buf.Len())
 			gain := 100 - (float64(currentSize) / float64(res.SizeBefore) * 100)
 			
-			fmt.Fprintf(os.Stderr, "[DEBUG] currentQ=%d Encode to %s duration=%s Metric=%s Score=%.4f Size=%s Gain=%.1f%%\n", 
+			fmt.Fprintf(os.Stderr, "[DEBUG] currentQ=%d Encode to %s duration=%s Metric=%s Score=%.4f (Threshold=%.2f) Size=%s Gain=%.1f%%\n", 
 				currentQ, encoderName, duration.Round(time.Millisecond).String(), 
-				strings.ToUpper(metric), sim, formatSize(currentSize), gain)
+				strings.ToUpper(metric), sim, threshold, formatSize(currentSize), gain)
 			if debug && durationDecode > 50*time.Millisecond {
 				// Only log decode if significant
 				fmt.Fprintf(os.Stderr, "[DEBUG]   (Decode took %s)\n", durationDecode.Round(time.Millisecond).String())
