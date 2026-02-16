@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-VERSION="1.3.1"
+VERSION="1.3.2"
 BINARY1="jpeg-recompress.go"
 BINARY2="jpegli-encode.go"
 ARCHIVE="jpeg-recompress.go-v${VERSION}-linux-x86_64.tar.bz2"

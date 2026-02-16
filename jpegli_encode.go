@@ -48,7 +48,9 @@ func main() {
 
 	finalDest := *output
 	if finalDest == "" {
-		finalDest = *input
+		finalDest = absSrc
+	} else {
+		finalDest, _ = filepath.Abs(finalDest)
 	}
 
 	// Read source data
@@ -102,6 +104,13 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Warning: Error applying metadata: %v\n", err)
 	}
 
+	// Check if we actually gained anything
+	tempInfo, err := os.Stat(tempPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error stating temp file: %v\n", err)
+		os.Exit(1)
+	}
+
 	// Prepare destination directory if needed
 	if *output != "" {
 		if err := os.MkdirAll(filepath.Dir(finalDest), 0755); err != nil {
@@ -110,17 +119,28 @@ func main() {
 		}
 	}
 
-	// Handle overwrite or move
-	if finalDest == absSrc {
-		if err := os.Remove(absSrc); err != nil {
-			fmt.Fprintf(os.Stderr, "Error deleting source: %v\n", err)
+	isCopied := false
+	if tempInfo.Size() >= srcInfo.Size() {
+		if finalDest != absSrc {
+			if err := copyFile(absSrc, finalDest); err != nil {
+				fmt.Fprintf(os.Stderr, "Error copying source to destination: %v\n", err)
+				os.Exit(1)
+			}
+		}
+		isCopied = true
+	} else {
+		// Handle overwrite or move
+		if finalDest == absSrc {
+			if err := os.Remove(absSrc); err != nil {
+				fmt.Fprintf(os.Stderr, "Error deleting source: %v\n", err)
+				os.Exit(1)
+			}
+		}
+
+		if err := moveFile(tempPath, finalDest); err != nil {
+			fmt.Fprintf(os.Stderr, "Error moving final file: %v\n", err)
 			os.Exit(1)
 		}
-	}
-
-	if err := moveFile(tempPath, finalDest); err != nil {
-		fmt.Fprintf(os.Stderr, "Error moving final file: %v\n", err)
-		os.Exit(1)
 	}
 
 	// Restore time and permissions
@@ -132,7 +152,11 @@ func main() {
 	sizeAfter := finalInfo.Size()
 	gain := 100 - (float64(sizeAfter) / float64(sizeBefore) * 100)
 
-	fmt.Printf("Successfully encoded %s to %s (quality %d)\n", *input, finalDest, *quality)
+	if isCopied {
+		fmt.Printf("No gain with Jpegli, keeping original %s\n", *input)
+	} else {
+		fmt.Printf("Successfully encoded %s to %s (quality %d)\n", *input, finalDest, *quality)
+	}
 	fmt.Printf("Size: %s -> %s (Gain: %.1f%%)\n", formatSize(sizeBefore), formatSize(sizeAfter), gain)
 }
 
@@ -143,13 +167,7 @@ func formatSize(size int64) string {
 	return fmt.Sprintf("%.1f KB", float64(size)/1024)
 }
 
-func moveFile(src, dst string) error {
-	err := os.Rename(src, dst)
-	if err == nil {
-		return nil
-	}
-	
-	// Fallback for cross-device
+func copyFile(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil { return err }
 	defer in.Close()
@@ -159,6 +177,20 @@ func moveFile(src, dst string) error {
 	defer out.Close()
 
 	if _, err = io.Copy(out, in); err != nil {
+		return err
+	}
+	
+	return nil
+}
+
+func moveFile(src, dst string) error {
+	err := os.Rename(src, dst)
+	if err == nil {
+		return nil
+	}
+	
+	// Fallback for cross-device
+	if err := copyFile(src, dst); err != nil {
 		return err
 	}
 	
