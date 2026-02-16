@@ -1,7 +1,8 @@
 # Validation Report - JPEG Recompress Branch
-Date: Mon Feb 16 12:40:23 AM CET 2026
+Date: Mon Feb 16 08:23:19 AM CET 2026
 
 | File | Mode | Status | Size (In -> Out) | Gain | Metadata (In -> Out) | Idempotence |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | 00093.jpg | Default | SUCCESS | 7.48 MB -> 4.55 MB | 39.1% | ✅ Tags OK (52 -> 52) | ✅ |
 | 00093.jpg | Skip | SUCCESS | 7.48 MB -> 4.55 MB | 39.2% | ✅ Stripped (52 -> 0) | ✅ |
 | 00093.jpg | KeepAll | SUCCESS | 7.48 MB -> 4.55 MB | 39.1% | ✅ Tags OK (52 -> 52) | ✅ |

@@ -20,7 +20,7 @@ echo "# Validation Report - JPEG Recompress Branch" > "$REPORT"
 echo "Date: $(date)" >> "$REPORT"
 echo "" >> "$REPORT"
 echo "| File | Mode | Status | Size (In -> Out) | Gain | Metadata (In -> Out) | Idempotence |" >> "$REPORT"
-echo "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
+echo "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |" >> "$REPORT"
 
 format_size() {
     local size=$1
