@@ -1,5 +1,5 @@
 # Validation Report - JPEG Recompress Branch
-Date: Mon Feb 16 01:58:43 PM CET 2026
+Date: Mon Feb 16 03:25:11 PM CET 2026
 
 | File | Mode | Status | Size (In -> Out) | Gain | Metadata (In -> Out) | Idempotence |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -15,9 +15,9 @@ Date: Mon Feb 16 01:58:43 PM CET 2026
 | P1000056.jpg | Default | COPIED_NO_GAIN | 601 KB -> 601 KB | 0% | ✅ Preserved (196 -> 196) | ✅ |
 | P1000056.jpg | Skip | COPIED_NO_GAIN | 601 KB -> 601 KB | 0% | ✅ Preserved (196 -> 196) | ✅ |
 | P1000056.jpg | KeepAll | COPIED_NO_GAIN | 601 KB -> 601 KB | 0% | ✅ Preserved (196 -> 196) | ✅ |
-| example-original.jpg | Default | COPIED_NO_GAIN | 626 KB -> 626 KB | 0% | ✅ Preserved (12 -> 12) | ✅ |
-| example-original.jpg | Skip | COPIED_NO_GAIN | 626 KB -> 626 KB | 0% | ✅ Preserved (12 -> 12) | ✅ |
-| example-original.jpg | KeepAll | COPIED_NO_GAIN | 626 KB -> 626 KB | 0% | ✅ Preserved (12 -> 12) | ✅ |
+| example-original.jpg | Default | SUCCESS | 626 KB -> 0 KB | 99.8% | ✅ Tags OK (12 -> 8) | ✅ |
+| example-original.jpg | Skip | SUCCESS | 626 KB -> 0 KB | 100% | ✅ Stripped (12 -> 0) | ✅ |
+| example-original.jpg | KeepAll | SUCCESS | 626 KB -> 0 KB | 99.8% | ✅ Tags OK (12 -> 8) | ✅ |
 | 00094.jpg | Default | SUCCESS | 8.44 MB -> 3.94 MB | 53.3% | ✅ Tags OK (52 -> 52) | ✅ |
 | 00094.jpg | Skip | SUCCESS | 8.44 MB -> 3.94 MB | 53.3% | ✅ Stripped (52 -> 0) | ✅ |
 | 00094.jpg | KeepAll | SUCCESS | 8.44 MB -> 3.94 MB | 53.3% | ✅ Tags OK (52 -> 52) | ✅ |
