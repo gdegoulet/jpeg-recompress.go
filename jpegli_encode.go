@@ -16,13 +16,21 @@ import (
 
 const Signature = "jpegli-encode.go"
 
+var Version = "dev"
+
 func main() {
 	input := flag.String("input", "", "Source file (required)")
 	output := flag.String("output", "", "Destination file (optional)")
 	quality := flag.Int("quality", 90, "Quality (1-100, default 90)")
 	chroma := flag.String("chroma_subsampling", "444", "Chroma subsampling: 444, 422, 420")
+	version := flag.Bool("version", false, "Show version")
 	
 	flag.Parse()
+
+	if *version {
+		fmt.Printf("jpegli-encode.go version %s\n", Version)
+		os.Exit(0)
+	}
 
 	if *input == "" {
 		if len(os.Args) == 1 {

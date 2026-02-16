@@ -74,6 +74,7 @@ This will produce a `jpeg-recompress.go` binary with zero dynamic dependencies.
 | `-skip-metadata` | Remove all metadata (except signature). | `false` |
 | `-quiet` | Suppress all output except errors. | `false` |
 | `-debug` | Show detailed trace of the search process. | `false` |
+| `-version` | Show version information and exit. | `false` |
 
 ---
 
@@ -100,6 +101,7 @@ This will produce a `jpeg-recompress.go` binary with zero dynamic dependencies.
 | `-output` | Path to destination. If omitted, overwrites input. | Input path |
 | `-quality` | Target encoding quality (1 to 100). | `90` |
 | `-chroma_subsampling` | Chroma subsampling: `444`, `422`, `420`. | `444` |
+| `-version` | Show version information and exit. | `false` |
 
 ### Example output
 
