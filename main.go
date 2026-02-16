@@ -334,8 +334,15 @@ func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, keepA
 	// Final rendering phase: if Jpegli is requested, we map the quality
 	if useJpegli && bestData != nil {
 		liQ := mapStdToJpegli(bestQ)
+		// Ensure Jpegli quality respects the user-defined bounds
+		if liQ < minQ {
+			liQ = minQ
+		}
+		if liQ > maxQ {
+			liQ = maxQ
+		}
 		if debug {
-			fmt.Fprintf(os.Stderr, "[DEBUG] Calibrating Jpegli: StdQ %d -> JpegliQ %d\n", bestQ, liQ)
+			fmt.Fprintf(os.Stderr, "[DEBUG] Calibrating Jpegli: StdQ %d -> JpegliQ %d (clamped to [%d, %d])\n", bestQ, liQ, minQ, maxQ)
 		}
 		var buf bytes.Buffer
 		local_startTime = time.Now()
