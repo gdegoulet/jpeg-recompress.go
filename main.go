@@ -271,15 +271,10 @@ func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, keepA
 		}
 		
 		duration = time.Since(local_startTime)
-		if debug {
-			encoderName := "std-jpg"
-			if useJpegli { encoderName = "jpegli" }
-			fmt.Fprintf(os.Stderr, "[DEBUG] currentQ=%d Encode to %s duration=%s\n", currentQ, encoderName, duration.Round(time.Millisecond).String()) 
-		}
 
 		local_startTime = time.Now()
 		compImg, _, err := image.Decode(bytes.NewReader(buf.Bytes()))
-		duration = time.Since(local_startTime)
+		durationDecode := time.Since(local_startTime)
 		if err != nil || compImg == nil { lowQ = currentQ + step; continue }
 
 		var sim float64
@@ -292,6 +287,21 @@ func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, keepA
 			sim = calculateButteraugli(img, compImg)
 		default:
 			sim = calculatePSNR(img, compImg, actualSample)
+		}
+
+		if debug {
+			encoderName := "std-jpg"
+			if useJpegli { encoderName = "jpegli" }
+			currentSize := int64(buf.Len())
+			gain := 100 - (float64(currentSize) / float64(res.SizeBefore) * 100)
+			
+			fmt.Fprintf(os.Stderr, "[DEBUG] currentQ=%d Encode to %s duration=%s Metric=%s Score=%.4f Size=%s Gain=%.1f%%\n", 
+				currentQ, encoderName, duration.Round(time.Millisecond).String(), 
+				strings.ToUpper(metric), sim, formatSize(currentSize), gain)
+			if debug && durationDecode > 50*time.Millisecond {
+				// Only log decode if significant
+				fmt.Fprintf(os.Stderr, "[DEBUG]   (Decode took %s)\n", durationDecode.Round(time.Millisecond).String())
+			}
 		}
 
 		// Butteraugli: smaller is better, others: larger is better
@@ -454,6 +464,13 @@ func calculateSSIM(img1, img2 image.Image, sample int) float64 {
 func getLuminance(c color.Color) float64 {
 	r, g, b, _ := c.RGBA()
 	return 0.299*float64(r>>8) + 0.587*float64(g>>8) + 0.114*float64(b>>8)
+}
+
+func formatSize(size int64) string {
+	if size >= 1048576 {
+		return fmt.Sprintf("%.2f MB", float64(size)/1048576)
+	}
+	return fmt.Sprintf("%.1f KB", float64(size)/1024)
 }
 
 func calculateButteraugli(img1, img2 image.Image) float64 {
