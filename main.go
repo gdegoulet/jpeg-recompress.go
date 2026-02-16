@@ -73,6 +73,7 @@ func main() {
 	sample := flag.Int("sample", 0, "Sub-sampling (0=auto)")
 	minQ := flag.Int("min-quality", 70, "Minimum quality (default 70)")
 	maxQ := flag.Int("max-quality", 90, "Maximum quality (default 90)")
+	chroma := flag.String("chroma_subsampling", "444", "Chroma subsampling: 444, 422, 420 (for Jpegli)")
 	keepAll := flag.Bool("keep-all-metadata", false, "Keep all metadata")
 	skipMeta := flag.Bool("skip-metadata", false, "Strip all metadata")
 	quiet := flag.Bool("quiet", false, "Quiet mode")
@@ -105,6 +106,20 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Map chroma subsampling
+	var ratio image.YCbCrSubsampleRatio
+	switch *chroma {
+	case "444":
+		ratio = image.YCbCrSubsampleRatio444
+	case "422":
+		ratio = image.YCbCrSubsampleRatio422
+	case "420":
+		ratio = image.YCbCrSubsampleRatio420
+	default:
+		fmt.Fprintf(os.Stderr, `{"error": "Invalid chroma subsampling '%s' (use 444, 422, or 420)"}`+"\n", *chroma)
+		os.Exit(1)
+	}
+
 	if *targetQuality == -1.0 {
 		switch strings.ToLower(*metric) {
 		case "ssim":
@@ -132,7 +147,7 @@ func main() {
 	if *debug {
 		fmt.Fprintf(os.Stderr, "[DEBUG] Computing %s\n", *input)
 	}
-	res, actualSample, srcFileInfo, finalFileInfo := processSingleFile(*input, *output, *targetQuality, *minQ, *maxQ, *keepAll, *skipMeta, *metric, *sample, *debug, *fast, *useJpegli)
+	res, actualSample, srcFileInfo, finalFileInfo := processSingleFile(*input, *output, *targetQuality, *minQ, *maxQ, ratio, *keepAll, *skipMeta, *metric, *sample, *debug, *fast, *useJpegli)
 
 	status := "SUCCESS"
 	if res.Skipped {
@@ -202,7 +217,7 @@ func getAdaptiveSample(b image.Rectangle, debug bool) int {
 	}
 }
 
-func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, keepAll, skipMeta bool, metric string, sample int, debug, fast, useJpegli bool) (Result, int, os.FileInfo, os.FileInfo) {
+func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, ratio image.YCbCrSubsampleRatio, keepAll, skipMeta bool, metric string, sample int, debug, fast, useJpegli bool) (Result, int, os.FileInfo, os.FileInfo) {
 	startTime := time.Now()
 	res := Result{}
 	absSrc, _ := filepath.Abs(src)
@@ -264,7 +279,7 @@ func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, keepA
 		if useJpegli {
 			_ = jpegli.Encode(&buf, img, &jpegli.EncodingOptions{
 				Quality:           currentQ,
-				ChromaSubsampling: image.YCbCrSubsampleRatio420,
+				ChromaSubsampling: ratio,
 			})
 		} else {
 			_ = jpeg.Encode(&buf, img, &jpeg.Options{Quality: currentQ})
@@ -324,43 +339,14 @@ func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, keepA
 	targetPath := dst
 	if targetPath == "" { targetPath = absSrc }
 
-	// Size gain check: if no improvement, skip or copy original
-	if bestData == nil || int64(len(bestData)) >= res.SizeBefore {
-		if dst != "" {
-			_ = os.MkdirAll(filepath.Dir(targetPath), 0755)
-			_ = copyFile(absSrc, targetPath)
-			_ = os.Chtimes(targetPath, originalModTime, originalModTime)
-			res.Copied = true
-			res.SizeAfter = res.SizeBefore
-		} else {
-			res.Skipped = true
-			res.SizeAfter = res.SizeBefore
-		}
-
-		if res.Skipped || res.Copied {
-			res.Duration = time.Since(startTime)
-			var fInfo os.FileInfo
-			if res.Copied { fInfo, _ = os.Stat(targetPath) } else if dst == "" { fInfo, _ = os.Stat(absSrc) }
-			return res, actualSample, srcInfo, fInfo
-		}
-	}
-
-	// Final rendering phase: if Jpegli is requested, bestData already contains the Jpegli encode
-	// and bestQ is already the Jpegli quality. No further action needed here.
-
-
+	// Decode best image to calculate final metrics
 	finalImg, _, _ := image.Decode(bytes.NewReader(bestData))
-	if finalImg == nil {
-		res.Skipped = true
-		res.SizeAfter = res.SizeBefore
-		fInfo, _ := os.Stat(targetPath)
-		return res, actualSample, srcInfo, fInfo
+	if finalImg != nil {
+		res.MSE = calculateMSE(img, finalImg, actualSample)
+		res.SSIM = calculateSSIM(img, finalImg, actualSample)
+		res.PSNR = calculatePSNR(img, finalImg, actualSample)
+		res.Butteraugli = calculateButteraugli(img, finalImg)
 	}
-	
-	res.MSE = calculateMSE(img, finalImg, actualSample)
-	res.SSIM = calculateSSIM(img, finalImg, actualSample)
-	res.PSNR = calculatePSNR(img, finalImg, actualSample)
-	res.Butteraugli = calculateButteraugli(img, finalImg)
 	res.BestQ = bestQ
 
 	tempPath := absSrc + ".tmp_recompress"
@@ -370,23 +356,35 @@ func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, keepA
 	}
 	defer os.Remove(tempPath)
 
-	applyMetadata(absSrc, tempPath, keepAll, skipMeta)
+	if err := applyMetadata(absSrc, tempPath, keepAll, skipMeta); err != nil {
+		res.Err = fmt.Errorf("error applying metadata: %v", err)
+		return res, actualSample, srcInfo, nil
+	}
 
+	// Prepare destination directory if needed
 	if dst != "" {
 		if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
 			res.Err = fmt.Errorf("error creating directory: %v", err)
 			return res, actualSample, srcInfo, nil
 		}
 	}
+
+	// Critical section: atomic-like move or copy
 	if targetPath == absSrc {
-		if err := os.Remove(absSrc); err != nil {
-			res.Err = fmt.Errorf("error deleting source: %v", err)
+		// Overwrite mode: We have the original in absSrc and the new one in tempPath
+		// We move tempPath to a SECOND temp name, then rename to source, to be as safe as possible
+		// But os.Rename is already atomic on most systems.
+		// The safest way is to rename tempPath to absSrc directly.
+		if err := moveFile(tempPath, targetPath); err != nil {
+			res.Err = fmt.Errorf("error overwriting source file: %v", err)
 			return res, actualSample, srcInfo, nil
 		}
-	}
-	if err := moveFile(tempPath, targetPath); err != nil {
-		res.Err = fmt.Errorf("error moving final file: %v", err)
-		return res, actualSample, srcInfo, nil
+	} else {
+		// Output to different file
+		if err := moveFile(tempPath, targetPath); err != nil {
+			res.Err = fmt.Errorf("error moving to destination: %v", err)
+			return res, actualSample, srcInfo, nil
+		}
 	}
 	
 	_ = os.Chtimes(targetPath, originalModTime, originalModTime)
@@ -507,22 +505,40 @@ func calculateButteraugli(img1, img2 image.Image) float64 {
 	return dist
 }
 
-func applyMetadata(src, dst string, keepAll, skipMeta bool) {
+func applyMetadata(src, dst string, keepAll, skipMeta bool) error {
 	ext := strings.ToLower(filepath.Ext(src))
 	if ext == ".jpg" || ext == ".jpeg" {
-		_ = copyJPEGMetadata(src, dst, keepAll, skipMeta)
+		return copyJPEGMetadata(src, dst, keepAll, skipMeta)
 	}
+	return nil
 }
 
 func isAlreadyProcessed(src string) bool {
 	data, err := os.ReadFile(src)
 	if err != nil { return false }
 	
-	// Look at the beginning (JPEG COM)
-	limit := 32768
-	if len(data) < limit { limit = len(data) }
-	if strings.Contains(string(data[:limit]), Signature) {
-		return true
+	// Scan JPEG markers for our APP15 signature
+	for i := 0; i < len(data)-1; {
+		if data[i] == 0xFF {
+			marker := data[i+1]
+			if marker == 0x00 || marker == 0xFF { i++; continue }
+			if marker == 0xD8 { i += 2; continue }
+			if marker == 0xDA || marker == 0xC0 || marker == 0xC2 { break } // Start of image data
+			
+			if i+3 >= len(data) { break }
+			length := int(data[i+2])<<8 | int(data[i+3])
+			
+			if marker == 0xEF { // APP15
+				if i+4+len(Signature) <= len(data) {
+					if string(data[i+4:i+4+len(Signature)]) == Signature {
+						return true
+					}
+				}
+			}
+			i += 2 + length
+		} else {
+			i++
+		}
 	}
 
 	return false
@@ -568,39 +584,42 @@ func countMetadata(path string) int {
 	return count
 }
 
-func copyFile(src, dst string) error {
+func copyFile(src, dst string) (err error) {
 	in, err := os.Open(src)
 	if err != nil { return err }
 	defer in.Close()
 
-	srcInfo, err := in.Stat()
-	if err != nil { return err }
-
 	out, err := os.Create(dst)
 	if err != nil { return err }
-	defer out.Close()
+	defer func() {
+		if cerr := out.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
-	_, err = io.Copy(out, in)
-	if err != nil { return err }
+	if _, err = io.Copy(out, in); err != nil {
+		return err
+	}
 
+	srcInfo, _ := os.Stat(src)
 	return os.Chmod(dst, srcInfo.Mode())
 }
 
 func moveFile(src, dst string) error {
-	// Tente un renommage atomique (rapide, même partition)
+	// Try atomic rename first
 	err := os.Rename(src, dst)
 	if err == nil {
 		return nil
 	}
 
-	// Si erreur de lien cross-device, on copie puis supprime
+	// Fallback for cross-device: copy then remove
 	if err := copyFile(src, dst); err != nil {
 		return err
 	}
 	return os.Remove(src)
 }
 
-func copyJPEGMetadata(src, dst string, keepAll, skipMeta bool) error {
+func copyJPEGMetadata(src, dst string, keepAll, skipMeta bool) (err error) {
 	srcData, err := os.ReadFile(src)
 	if err != nil { return err }
 	dstData, err := os.ReadFile(dst)
@@ -628,23 +647,30 @@ func copyJPEGMetadata(src, dst string, keepAll, skipMeta bool) error {
 					if !keepAll {
 						// 1. Strip Extended XMP (often used for heavy payloads like depth maps or videos)
 						if marker == 0xE1 && length > 35 {
-							header := string(segment[4:33])
-							if header == "http://ns.adobe.com/xmp/exten" {
-								keep = false
+							// Safety check for header access
+							if i+2+33 <= len(srcData) {
+								header := string(segment[4:33])
+								if header == "http://ns.adobe.com/xmp/exten" {
+									keep = false
+								}
 							}
 						}
 						// 2. Strip Photoshop thumbnails/binary data (APP13)
 						if marker == 0xED && length > 14 {
-							header := string(segment[4:14])
-							if header == "Photoshop " {
-								keep = false
+							if i+2+14 <= len(srcData) {
+								header := string(segment[4:14])
+								if header == "Photoshop " {
+									keep = false
+								}
 							}
 						}
 						// 3. Strip FPXR (FlashPix) which is usually large and useless
 						if marker == 0xE2 && length > 10 {
-							header := string(segment[4:9])
-							if header == "FPXR" {
-								keep = false
+							if i+2+9 <= len(srcData) {
+								header := string(segment[4:9])
+								if header == "FPXR" {
+									keep = false
+								}
 							}
 						}
 					}
@@ -662,6 +688,16 @@ func copyJPEGMetadata(src, dst string, keepAll, skipMeta bool) error {
 	var out bytes.Buffer
 	out.Write([]byte{0xFF, 0xD8}) // SOI
 	
+	// Ensure JFIF (APP0) stays first if present among segments
+	for i, seg := range segments {
+		if len(seg) > 1 && seg[1] == 0xE0 {
+			out.Write(seg)
+			// Remove from slices to not duplicate later
+			segments = append(segments[:i], segments[i+1:]...)
+			break
+		}
+	}
+
 	// Signature injection (APP15 segment) - EARLY in file
 	sigData := []byte(Signature)
 	out.Write([]byte{0xFF, 0xEF}) // APP15 marker

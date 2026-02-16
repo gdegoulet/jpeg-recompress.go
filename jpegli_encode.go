@@ -137,14 +137,7 @@ func main() {
 		}
 		isCopied = true
 	} else {
-		// Handle overwrite or move
-		if finalDest == absSrc {
-			if err := os.Remove(absSrc); err != nil {
-				fmt.Fprintf(os.Stderr, "Error deleting source: %v\n", err)
-				os.Exit(1)
-			}
-		}
-
+		// Critical section: move temp to final (atomic)
 		if err := moveFile(tempPath, finalDest); err != nil {
 			fmt.Fprintf(os.Stderr, "Error moving final file: %v\n", err)
 			os.Exit(1)
@@ -175,14 +168,18 @@ func formatSize(size int64) string {
 	return fmt.Sprintf("%.1f KB", float64(size)/1024)
 }
 
-func copyFile(src, dst string) error {
+func copyFile(src, dst string) (err error) {
 	in, err := os.Open(src)
 	if err != nil { return err }
 	defer in.Close()
 
 	out, err := os.Create(dst)
 	if err != nil { return err }
-	defer out.Close()
+	defer func() {
+		if cerr := out.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
 	if _, err = io.Copy(out, in); err != nil {
 		return err
@@ -192,6 +189,7 @@ func copyFile(src, dst string) error {
 }
 
 func moveFile(src, dst string) error {
+	// Try atomic rename first
 	err := os.Rename(src, dst)
 	if err == nil {
 		return nil
@@ -205,7 +203,7 @@ func moveFile(src, dst string) error {
 	return os.Remove(src)
 }
 
-func copyJPEGMetadata(src, dst string) error {
+func copyJPEGMetadata(src, dst string) (err error) {
 	srcData, err := os.ReadFile(src)
 	if err != nil { return err }
 	dstData, err := os.ReadFile(dst)
@@ -231,23 +229,29 @@ func copyJPEGMetadata(src, dst string) error {
 				// Filtering logic (strip large segments like in main.go)
 				// 1. Strip Extended XMP
 				if marker == 0xE1 && length > 35 {
-					header := string(segment[4:33])
-					if header == "http://ns.adobe.com/xmp/exten" {
-						keep = false
+					if i+2+33 <= len(srcData) {
+						header := string(segment[4:33])
+						if header == "http://ns.adobe.com/xmp/exten" {
+							keep = false
+						}
 					}
 				}
 				// 2. Strip Photoshop thumbnails/binary data (APP13)
 				if marker == 0xED && length > 14 {
-					header := string(segment[4:14])
-					if header == "Photoshop " {
-						keep = false
+					if i+2+14 <= len(srcData) {
+						header := string(segment[4:14])
+						if header == "Photoshop " {
+							keep = false
+						}
 					}
 				}
 				// 3. Strip FPXR (FlashPix)
 				if marker == 0xE2 && length > 10 {
-					header := string(segment[4:9])
-					if header == "FPXR" {
-						keep = false
+					if i+2+9 <= len(srcData) {
+						header := string(segment[4:9])
+						if header == "FPXR" {
+							keep = false
+						}
 					}
 				}
 
@@ -263,6 +267,15 @@ func copyJPEGMetadata(src, dst string) error {
 	var out bytes.Buffer
 	out.Write([]byte{0xFF, 0xD8}) // SOI
 	
+	// Ensure JFIF (APP0) stays first if present
+	for i, seg := range segments {
+		if len(seg) > 1 && seg[1] == 0xE0 {
+			out.Write(seg)
+			segments = append(segments[:i], segments[i+1:]...)
+			break
+		}
+	}
+
 	// Signature
 	sigData := []byte(Signature)
 	out.Write([]byte{0xFF, 0xEF}) // APP15 marker
@@ -270,6 +283,10 @@ func copyJPEGMetadata(src, dst string) error {
 	out.Write(sigData)
 
 	for _, seg := range segments {
+		// Avoid duplicating our own signature if it was already in an APP15
+		if len(seg) > 2 && seg[1] == 0xEF && strings.Contains(string(seg), Signature) {
+			continue
+		}
 		out.Write(seg)
 	}
 	
