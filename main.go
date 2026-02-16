@@ -27,16 +27,17 @@ const Signature = "jpeg-recompress.go"
 var Version = "dev"
 
 type Result struct {
-	SizeBefore int64
-	SizeAfter  int64
-	BestQ      int
-	Skipped    bool
-	Copied     bool
-	MSE        float64
-	SSIM       float64
-	PSNR       float64
-	Duration   time.Duration
-	Err        error
+	SizeBefore  int64
+	SizeAfter   int64
+	BestQ       int
+	Skipped     bool
+	Copied      bool
+	MSE         float64
+	SSIM        float64
+	PSNR        float64
+	Butteraugli float64
+	Duration    time.Duration
+	Err         error
 }
 
 type VerificationResults struct {
@@ -59,6 +60,7 @@ type FinalOutput struct {
 	MSE           float64 `json:"mse"`
 	SSIM          float64 `json:"ssim"`
 	PSNR          float64 `json:"psnr_db"`
+	Butteraugli   float64 `json:"butteraugli_score"`
 	ExecutionTime string  `json:"execution_time"`
 	Test          VerificationResults `json:"test_results"`
 }
@@ -174,6 +176,7 @@ func main() {
 			SizeBefore: res.SizeBefore, SizeAfter: res.SizeAfter,
 			Metric: strings.ToUpper(*metric), Threshold: *targetQuality, Sample: actualSample,
 			MSE: res.MSE, SSIM: res.SSIM, PSNR: math.Round(res.PSNR*10) / 10,
+			Butteraugli:   math.Round(res.Butteraugli*100) / 100,
 			ExecutionTime: res.Duration.Round(time.Millisecond).String(),
 			Test:          verification,
 		}
@@ -369,6 +372,7 @@ func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, keepA
 	res.MSE = calculateMSE(img, finalImg, actualSample)
 	res.SSIM = calculateSSIM(img, finalImg, actualSample)
 	res.PSNR = calculatePSNR(img, finalImg, actualSample)
+	res.Butteraugli = calculateButteraugli(img, finalImg)
 	res.BestQ = bestQ
 
 	tempPath := absSrc + ".tmp_recompress"
