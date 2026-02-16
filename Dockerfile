@@ -17,7 +17,7 @@ ARG VERSION=dev
 
 # Build fully static binaries
 RUN GOAMD64=v3 CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.Version=${VERSION}" -o jpeg-recompress.go main.go
-RUN GOAMD64=v3 CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o jpegli-encode.go jpegli_encode.go
+RUN GOAMD64=v3 CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.Version=${VERSION}" -o jpegli-encode.go jpegli_encode.go
 
 # Final stage: minimal scratch image
 FROM scratch
