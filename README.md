@@ -64,7 +64,7 @@ This will produce a `jpeg-recompress.go` binary with zero dynamic dependencies.
 | `-input` | **(Required)** Path to the source image. | |
 | `-output` | Path to destination. If omitted, overwrites input. | Input path |
 | `-metric` | Quality metric: `psnr`, `ssim`, `mse`. | `psnr` |
-| `-threshold` | Target quality threshold. | `38.5` dB (PSNR), `1.0` (Butteraugli/Jpegli) |
+| `-threshold` | Target quality threshold. | `39.5` dB (PSNR), `1.0` (Butteraugli/Jpegli) |
 | `-min-quality` | Minimum quality level to attempt. | `70` |
 | `-max-quality` | Maximum quality level to attempt. | `90` |
 | `-sample` | Sub-sampling rate (1=every pixel, 0=auto). | `0` (Adaptive) |
@@ -122,7 +122,7 @@ Choosing the right threshold depends on your balance between file size and visua
 
 | Usage | Threshold | Visual Quality |
 | :--- | :--- | :--- |
-| **Archivage / Pro** | **38.5 dB** | Secure, indistinguishable from original. |
+| **Archivage / Pro** | **39.5 dB** | Secure, indistinguishable from original. |
 | **Standard / Web HD** | **37.5 dB** | Excellent balance, good reduction. |
 | **Aggressive Web** | **36.5 dB** | Significant gains, quality remains clean. |
 
@@ -155,7 +155,7 @@ Choosing the right threshold depends on your balance between file size and visua
 
 ## Benchmark: Standard vs Jpegli
 
-Performance comparison using default settings: **Standard (PSNR 38.5)** vs **Jpegli (Butteraugli 1.0)**.
+Performance comparison using default settings: **Standard (PSNR 39.5)** vs **Jpegli (Butteraugli 1.0)**.
 
 | Image | Standard Gain | Jpegli Gain | Difference |
 | :--- | :--- | :--- | :--- |

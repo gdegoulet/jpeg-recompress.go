@@ -68,7 +68,7 @@ func main() {
 	input := flag.String("input", "", "Source file (required)")
 	output := flag.String("output", "", "Destination file (optional)")
 	metric := flag.String("metric", "psnr", "Metric: psnr, ssim, mse or butteraugli")
-	targetQuality := flag.Float64("threshold", -1.0, "Threshold (Default: PSNR=38.5, SSIM=0.99, MSE=0.99995)")
+	targetQuality := flag.Float64("threshold", -1.0, "Threshold (Default: PSNR=39.5, SSIM=0.99, MSE=0.99995)")
 	sample := flag.Int("sample", 0, "Sub-sampling (0=auto)")
 	minQ := flag.Int("min-quality", 70, "Minimum quality (default 70)")
 	maxQ := flag.Int("max-quality", 90, "Maximum quality (default 90)")
@@ -126,7 +126,7 @@ func main() {
 		case "butteraugli":
 			*targetQuality = 1.0
 		default: // psnr
-			*targetQuality = 38.5
+			*targetQuality = 39.5
 		}
 	}
 

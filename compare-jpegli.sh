@@ -12,7 +12,7 @@ fi
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
 
-echo "# Standard (PSNR 38.5) vs Jpegli (Butteraugli 1.0) Comparison"
+echo "# Standard (PSNR 39.5) vs Jpegli (Butteraugli 1.0) Comparison"
 echo "| File | Mode | Metric | Size (Bytes) | Gain vs Orig | Quality (Q) |"
 echo "| :--- | :--- | :--- | :--- | :--- | :--- |"
 
@@ -25,7 +25,7 @@ find "$SRC_DIR" -type f \( -iname "*.jpg" -o -iname "*.jpeg" \) | while read img
 
     echo "| $filename | **Original** | - | $orig_size | - | - |"
     
-    # 1. Standard (Default PSNR 38.5)
+    # 1. Standard (Default PSNR 39.5)
     std_out=$($BINARY -input "$img" -output "$OUT_DIR/std_$filename" 2>/dev/null)
     std_size=$(stat -c%s "$OUT_DIR/std_$filename")
     std_gain=$(echo "$std_out" | jq -r '.gain_percent')
