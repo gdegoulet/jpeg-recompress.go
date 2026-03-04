@@ -79,6 +79,7 @@ func main() {
 	quiet := flag.Bool("quiet", false, "Quiet mode")
 	debug := flag.Bool("debug", false, "Debug mode")
 	fast := flag.Bool("fast", false, "Fast mode")
+	allMetrics := flag.Bool("all-metrics", false, "Compute all metrics including butteraugli (slower)")
 	version := flag.Bool("version", false, "Show version")
 	useJpegli := flag.Bool("jpegli", false, "Use Jpegli encoder (experimental)")
 
@@ -136,7 +137,7 @@ func main() {
 	if *debug {
 		fmt.Fprintf(os.Stderr, "[DEBUG] Computing %s\n", *input)
 	}
-	res, actualSample, srcFileInfo, finalFileInfo := processSingleFile(*input, *output, *targetQuality, *minQ, *maxQ, ratio, *keepAll, *skipMeta, *metric, *sample, *debug, *fast, *useJpegli)
+	res, actualSample, srcFileInfo, finalFileInfo := processSingleFile(*input, *output, *targetQuality, *minQ, *maxQ, ratio, *keepAll, *skipMeta, *metric, *sample, *debug, *fast, *useJpegli, *allMetrics)
 
 	status := "SUCCESS"
 	if res.Skipped {
@@ -206,7 +207,7 @@ func getAdaptiveSample(b image.Rectangle, debug bool) int {
 	}
 }
 
-func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, ratio image.YCbCrSubsampleRatio, keepAll, skipMeta bool, metric string, sample int, debug, fast, useJpegli bool) (Result, int, os.FileInfo, os.FileInfo) {
+func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, ratio image.YCbCrSubsampleRatio, keepAll, skipMeta bool, metric string, sample int, debug, fast, useJpegli, allMetrics bool) (Result, int, os.FileInfo, os.FileInfo) {
 	startTime := time.Now()
 	res := Result{}
 	absSrc, _ := filepath.Abs(src)
@@ -253,6 +254,7 @@ func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, ratio
 	var encodeStart time.Time
 	var encodeDuration time.Duration
 	var bestData []byte
+	var bestImg image.Image // cached decoded image from winning search iteration
 	bestQ := minQ
 	lowQ, highQ := minQ, maxQ
 	step := 1
@@ -320,6 +322,7 @@ func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, ratio
 			bestQ = currentQ
 			highQ = currentQ - step
 			bestData = buf.Bytes()
+			bestImg = compImg
 		} else {
 			// Current quality does NOT meet threshold, must increase quality
 			lowQ = currentQ + step
@@ -354,13 +357,18 @@ func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, ratio
 		return res, actualSample, srcInfo, finalInfo
 	}
 
-	// Decode best image to calculate final metrics
-	finalImg, _, _ := image.Decode(bytes.NewReader(bestData))
+	// Use cached decoded image from search loop; fallback to re-decode only if needed
+	finalImg := bestImg
+	if finalImg == nil {
+		finalImg, _, _ = image.Decode(bytes.NewReader(bestData))
+	}
 	if finalImg != nil {
-		res.MSE = calculateMSE(img, finalImg, actualSample)
+		res.MSE, res.PSNR = calculateMSEAndPSNR(img, finalImg, actualSample)
 		res.SSIM = calculateSSIM(img, finalImg, actualSample)
-		res.PSNR = calculatePSNR(img, finalImg, actualSample)
-		res.Butteraugli = calculateButteraugli(img, finalImg)
+		// Butteraugli is expensive; only compute it when it was the active metric or explicitly requested
+		if strings.ToLower(metric) == "butteraugli" || allMetrics {
+			res.Butteraugli = calculateButteraugli(img, finalImg)
+		}
 	}
 	res.BestQ = bestQ
 
@@ -438,6 +446,29 @@ func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, ratio
 	return res, actualSample, srcInfo, finalInfo
 }
 
+
+// calculateMSEAndPSNR computes both MSE and PSNR in a single pixel pass.
+func calculateMSEAndPSNR(img1, img2 image.Image, sample int) (mse, psnr float64) {
+	b := img1.Bounds()
+	var sum, count float64
+	for y := b.Min.Y; y < b.Max.Y; y += sample {
+		for x := b.Min.X; x < b.Max.X; x += sample {
+			r1, g1, b1, _ := img1.At(x, y).RGBA()
+			r2, g2, b2, _ := img2.At(x, y).RGBA()
+			dr, dg, db := float64(r1>>8)-float64(r2>>8), float64(g1>>8)-float64(g2>>8), float64(b1>>8)-float64(b2>>8)
+			sum += (dr*dr + dg*dg + db*db) / 3.0
+			count++
+		}
+	}
+	rawMSE := sum / count
+	mse = rawMSE / (255 * 255)
+	if rawMSE == 0 {
+		psnr = 100.0
+	} else {
+		psnr = 20*math.Log10(255) - 10*math.Log10(rawMSE)
+	}
+	return
+}
 
 func calculatePSNR(img1, img2 image.Image, sample int) float64 {
 	b := img1.Bounds()

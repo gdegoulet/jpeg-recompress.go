@@ -72,6 +72,7 @@ This will produce a `jpeg-recompress.go` binary with zero dynamic dependencies.
 | `-fast` | Step-based search (step=2) for faster execution. | `false` |
 | `-keep-all-metadata` | Preserve all original metadata tags. | `false` |
 | `-skip-metadata` | Remove all metadata (except signature). | `false` |
+| `-all-metrics` | Compute all metrics including butteraugli in the JSON output (slower). | `false` |
 | `-quiet` | Suppress all output except errors. | `false` |
 | `-debug` | Show detailed trace of the search process. | `false` |
 | `-version` | Show version information and exit. | `false` |
