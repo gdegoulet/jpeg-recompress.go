@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"image"
-	"image/color"
 	_ "image/gif"
 	"image/jpeg"
 	_ "image/png"
@@ -19,7 +18,7 @@ import (
 
 	"github.com/gen2brain/jpegli"
 	"github.com/jasonmoo/go-butteraugli"
-	"golang.org/x/image/draw"
+	stdDraw "golang.org/x/image/draw"
 )
 
 const Signature = "jpeg-recompress.go"
@@ -447,6 +446,22 @@ func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, ratio
 }
 
 
+// toNRGBA converts any image.Image to *image.NRGBA for direct pixel access.
+// Only use this when the image is small or when it will be accessed many times.
+func toNRGBA(img image.Image) *image.NRGBA {
+	if n, ok := img.(*image.NRGBA); ok {
+		return n
+	}
+	b := img.Bounds()
+	dst := image.NewNRGBA(b)
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			dst.Set(x, y, img.At(x, y))
+		}
+	}
+	return dst
+}
+
 // calculateMSEAndPSNR computes both MSE and PSNR in a single pixel pass.
 func calculateMSEAndPSNR(img1, img2 image.Image, sample int) (mse, psnr float64) {
 	b := img1.Bounds()
@@ -455,7 +470,9 @@ func calculateMSEAndPSNR(img1, img2 image.Image, sample int) (mse, psnr float64)
 		for x := b.Min.X; x < b.Max.X; x += sample {
 			r1, g1, b1, _ := img1.At(x, y).RGBA()
 			r2, g2, b2, _ := img2.At(x, y).RGBA()
-			dr, dg, db := float64(r1>>8)-float64(r2>>8), float64(g1>>8)-float64(g2>>8), float64(b1>>8)-float64(b2>>8)
+			dr := float64(r1>>8) - float64(r2>>8)
+			dg := float64(g1>>8) - float64(g2>>8)
+			db := float64(b1>>8) - float64(b2>>8)
 			sum += (dr*dr + dg*dg + db*db) / 3.0
 			count++
 		}
@@ -471,40 +488,19 @@ func calculateMSEAndPSNR(img1, img2 image.Image, sample int) (mse, psnr float64)
 }
 
 func calculatePSNR(img1, img2 image.Image, sample int) float64 {
-	b := img1.Bounds()
-	var sum, count float64
-	for y := b.Min.Y; y < b.Max.Y; y += sample {
-		for x := b.Min.X; x < b.Max.X; x += sample {
-			r1, g1, b1, _ := img1.At(x, y).RGBA()
-			r2, g2, b2, _ := img2.At(x, y).RGBA()
-			dr, dg, db := float64(r1>>8)-float64(r2>>8), float64(g1>>8)-float64(g2>>8), float64(b1>>8)-float64(b2>>8)
-			sum += (dr*dr + dg*dg + db*db) / 3.0
-			count++
-		}
-	}
-	mse := sum / count
-	if mse == 0 { return 100.0 }
-	return 20*math.Log10(255) - 10*math.Log10(mse)
+	_, psnr := calculateMSEAndPSNR(img1, img2, sample)
+	return psnr
 }
 
 func calculateMSE(img1, img2 image.Image, sample int) float64 {
-	b := img1.Bounds()
-	var sum, count float64
-	for y := b.Min.Y; y < b.Max.Y; y += sample {
-		for x := b.Min.X; x < b.Max.X; x += sample {
-			r1, g1, b1, _ := img1.At(x, y).RGBA()
-			r2, g2, b2, _ := img2.At(x, y).RGBA()
-			dr, dg, db := float64(r1>>8)-float64(r2>>8), float64(g1>>8)-float64(g2>>8), float64(b1>>8)-float64(b2>>8)
-			sum += (dr*dr + dg*dg + db*db) / (3.0 * 255 * 255)
-			count++
-		}
-	}
-	return sum / count
+	mse, _ := calculateMSEAndPSNR(img1, img2, sample)
+	return mse
 }
 
 func calculateSSIM(img1, img2 image.Image, sample int) float64 {
 	b := img1.Bounds()
 	w, h := b.Dx(), b.Dy()
+	ox, oy := b.Min.X, b.Min.Y
 	const (c1, c2 = 6.5025, 58.5225)
 	var total, count float64
 	step := 8 * sample
@@ -513,14 +509,20 @@ func calculateSSIM(img1, img2 image.Image, sample int) float64 {
 			var m1, m2, s1, s2, s12, n float64
 			for by := y; by < y+8 && by < h; by++ {
 				for bx := x; bx < x+8 && bx < w; bx++ {
-					v1, v2 := getLuminance(img1.At(bx, by)), getLuminance(img2.At(bx, by))
+					r1, g1, b1, _ := img1.At(ox+bx, oy+by).RGBA()
+					r2, g2, b2, _ := img2.At(ox+bx, oy+by).RGBA()
+					v1 := 0.299*float64(r1>>8) + 0.587*float64(g1>>8) + 0.114*float64(b1>>8)
+					v2 := 0.299*float64(r2>>8) + 0.587*float64(g2>>8) + 0.114*float64(b2>>8)
 					m1 += v1; m2 += v2; n++
 				}
 			}
 			m1 /= n; m2 /= n
 			for by := y; by < y+8 && by < h; by++ {
 				for bx := x; bx < x+8 && bx < w; bx++ {
-					v1, v2 := getLuminance(img1.At(bx, by)), getLuminance(img2.At(bx, by))
+					r1, g1, b1, _ := img1.At(ox+bx, oy+by).RGBA()
+					r2, g2, b2, _ := img2.At(ox+bx, oy+by).RGBA()
+					v1 := 0.299*float64(r1>>8) + 0.587*float64(g1>>8) + 0.114*float64(b1>>8)
+					v2 := 0.299*float64(r2>>8) + 0.587*float64(g2>>8) + 0.114*float64(b2>>8)
 					s1 += (v1 - m1) * (v1 - m1); s2 += (v2 - m2) * (v2 - m2); s12 += (v1 - m1) * (v2 - m2)
 				}
 			}
@@ -534,11 +536,6 @@ func calculateSSIM(img1, img2 image.Image, sample int) float64 {
 		}
 	}
 	return total / count
-}
-
-func getLuminance(c color.Color) float64 {
-	r, g, b, _ := c.RGBA()
-	return 0.299*float64(r>>8) + 0.587*float64(g>>8) + 0.114*float64(b>>8)
 }
 
 func formatSize(size int64) string {
@@ -571,8 +568,8 @@ func calculateButteraugli(img1, img2 image.Image) float64 {
 	small2 := image.NewRGBA(newRect)
 
 	// BiLinear is a good balance between speed and quality for perceptual analysis
-	draw.BiLinear.Scale(small1, newRect, img1, b, draw.Over, nil)
-	draw.BiLinear.Scale(small2, newRect, img2, b, draw.Over, nil)
+	stdDraw.BiLinear.Scale(small1, newRect, img1, b, stdDraw.Over, nil)
+	stdDraw.BiLinear.Scale(small2, newRect, img2, b, stdDraw.Over, nil)
 
 	dist, _ := butteraugli.CompareImages(small1, small2)
 	return dist
