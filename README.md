@@ -64,7 +64,7 @@ This will produce a `jpeg-recompress.go` binary with zero dynamic dependencies.
 | `-input` | **(Required)** Path to the source image. | |
 | `-output` | Path to destination. If omitted, overwrites input. | Input path |
 | `-metric` | Quality metric: `psnr`, `ssim`, `mse`. | `psnr` |
-| `-threshold` | Target quality threshold. | `38.5` (STD), `42.0` (Jpegli) |
+| `-threshold` | Target quality threshold. | `38.5` dB (PSNR), `1.0` (Butteraugli/Jpegli) |
 | `-min-quality` | Minimum quality level to attempt. | `70` |
 | `-max-quality` | Maximum quality level to attempt. | `90` |
 | `-sample` | Sub-sampling rate (1=every pixel, 0=auto). | `0` (Adaptive) |

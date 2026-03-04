@@ -92,9 +92,6 @@ func main() {
 		fmt.Printf("jpeg-recompress.go version %s\n", Version)
 		os.Exit(0)
 	}
-	var local_startTime time.Time
-	var duration time.Duration
-
 	if len(os.Args) < 2 {
 		flag.CommandLine.SetOutput(os.Stderr)
 		flag.Usage()
@@ -133,14 +130,6 @@ func main() {
 		}
 	}
 
-	local_startTime = time.Now()
-	if err := checkDependencies(); err != nil {
-		fmt.Fprintf(os.Stderr, `{"error": "Missing dependencies", "details": "%v"}`+"\n", err)
-		os.Exit(1)
-	}
-	duration = time.Since(local_startTime)
-	if *debug { fmt.Fprintf(os.Stderr, "[DEBUG] checkDependencies duration=%s\n", duration.Round(time.Millisecond).String()) }
-
 	finalDest := *output
 	if finalDest == "" { finalDest = *input }
 
@@ -156,34 +145,35 @@ func main() {
 		status = "COPIED_NO_GAIN"
 	}
 
-			gain := 0.0
-			if res.SizeBefore > 0 {
-				gain = 100 - (float64(res.SizeAfter) / float64(res.SizeBefore) * 100)
-			}
-	
-			verification := VerificationResults{}
-			if srcFileInfo != nil && finalFileInfo != nil {
-				verification.IsSmallerOrEqual = res.SizeAfter <= srcFileInfo.Size()
-				verification.SamePermissions = finalFileInfo.Mode() == srcFileInfo.Mode()
-				verification.SameModTime = finalFileInfo.ModTime().Equal(srcFileInfo.ModTime())
-			}
-	
-			isPerfect := status == "SUCCESS" && verification.IsSmallerOrEqual && verification.SamePermissions && verification.SameModTime
-	
-			// Exit code determination based on business rules
-			shouldExitZero := isPerfect
-			if !isPerfect && res.Err == nil {
-				// We consider it a "soft success" if we didn't gain anything but handled it safely
-				if status == "SKIPPED" || status == "COPIED_NO_GAIN" {
-					shouldExitZero = true
-				}
-			}
+	gain := 0.0
+	if res.SizeBefore > 0 {
+		gain = 100 - (float64(res.SizeAfter) / float64(res.SizeBefore) * 100)
+	}
 
-			if !*quiet {
-				if res.Err != nil {
-					fmt.Fprintf(os.Stderr, `{"error": "Processing failed", "file": "%s", "details": "%v"}`+"\n", *input, res.Err)
-					os.Exit(1)
-				}
+	verification := VerificationResults{}
+	if srcFileInfo != nil && finalFileInfo != nil {
+		verification.IsSmallerOrEqual = res.SizeAfter <= srcFileInfo.Size()
+		verification.SamePermissions = finalFileInfo.Mode() == srcFileInfo.Mode()
+		verification.SameModTime = finalFileInfo.ModTime().Equal(srcFileInfo.ModTime())
+	}
+
+	isPerfect := status == "SUCCESS" && verification.IsSmallerOrEqual && verification.SamePermissions && verification.SameModTime
+
+	// Exit code determination based on business rules
+	shouldExitZero := isPerfect
+	if !isPerfect && res.Err == nil {
+		// We consider it a "soft success" if we didn't gain anything but handled it safely
+		if status == "SKIPPED" || status == "COPIED_NO_GAIN" {
+			shouldExitZero = true
+		}
+	}
+
+	if res.Err != nil {
+		fmt.Fprintf(os.Stderr, `{"error": "Processing failed", "file": "%s", "details": "%v"}`+"\n", *input, res.Err)
+		os.Exit(1)
+	}
+
+	if !*quiet {
 		out := FinalOutput{
 			Status: status, Input: *input, Output: finalDest,
 			GainPercent: math.Round(gain*10) / 10, Quality: res.BestQ,
@@ -198,7 +188,7 @@ func main() {
 		fmt.Println(string(jsonBytes))
 	}
 
-	if !shouldExitZero || res.Err != nil {
+	if !shouldExitZero {
 		os.Exit(1)
 	}
 }
@@ -245,7 +235,8 @@ func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, ratio
 		return res, 0, srcInfo, fInfo
 	}
 
-	srcData, _ := os.ReadFile(absSrc)
+	srcData, err := os.ReadFile(absSrc)
+	if err != nil { res.Err = err; return res, 0, srcInfo, nil }
 	img, _, err := image.Decode(bytes.NewReader(srcData))
 	if err != nil { res.Err = err; return res, 0, srcInfo, nil }
 
@@ -259,8 +250,8 @@ func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, ratio
 		return res, 0, srcInfo, fInfo
 	}
 
-	var local_startTime time.Time 
-	var duration time.Duration 
+	var encodeStart time.Time
+	var encodeDuration time.Duration
 	var bestData []byte
 	bestQ := minQ
 	lowQ, highQ := minQ, maxQ
@@ -272,7 +263,7 @@ func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, ratio
 		currentQ := (lowQ + highQ) / 2
 		if step > 1 { currentQ = (currentQ / step) * step }
 
-		local_startTime = time.Now()
+		encodeStart = time.Now()
 		var buf bytes.Buffer
 		
 		if useJpegli {
@@ -284,11 +275,11 @@ func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, ratio
 			_ = jpeg.Encode(&buf, img, &jpeg.Options{Quality: currentQ})
 		}
 		
-		duration = time.Since(local_startTime)
+		encodeDuration = time.Since(encodeStart)
 
-		local_startTime = time.Now()
+		decodeStart := time.Now()
 		compImg, _, err := image.Decode(bytes.NewReader(buf.Bytes()))
-		durationDecode := time.Since(local_startTime)
+		durationDecode := time.Since(decodeStart)
 		if err != nil || compImg == nil { lowQ = currentQ + step; continue }
 
 		var sim float64
@@ -310,7 +301,7 @@ func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, ratio
 			gain := 100 - (float64(currentSize) / float64(res.SizeBefore) * 100)
 			
 			fmt.Fprintf(os.Stderr, "[DEBUG] currentQ=%d Encode to %s duration=%s Metric=%s Score=%.4f (Threshold=%.2f) Size=%s Gain=%.1f%%\n", 
-				currentQ, encoderName, duration.Round(time.Millisecond).String(), 
+				currentQ, encoderName, encodeDuration.Round(time.Millisecond).String(), 
 				strings.ToUpper(metric), sim, threshold, formatSize(currentSize), gain)
 			if debug && durationDecode > 50*time.Millisecond {
 				// Only log decode if significant
@@ -340,6 +331,27 @@ func processSingleFile(src, dst string, threshold float64, minQ, maxQ int, ratio
 		targetPath = absSrc
 	} else {
 		targetPath, _ = filepath.Abs(targetPath)
+	}
+
+	// If no quality in the search range met the threshold, fall back to no-gain path
+	if len(bestData) == 0 {
+		if targetPath == absSrc {
+			res.Skipped = true
+			res.SizeAfter = srcInfo.Size()
+			res.Duration = time.Since(startTime)
+			return res, actualSample, srcInfo, srcInfo
+		}
+		_ = os.MkdirAll(filepath.Dir(targetPath), 0755)
+		if err := copyFile(absSrc, targetPath); err != nil {
+			res.Err = fmt.Errorf("error copying original to destination: %v", err)
+			return res, actualSample, srcInfo, nil
+		}
+		_ = os.Chtimes(targetPath, originalModTime, originalModTime)
+		res.Copied = true
+		res.SizeAfter = srcInfo.Size()
+		res.Duration = time.Since(startTime)
+		finalInfo, _ := os.Stat(targetPath)
+		return res, actualSample, srcInfo, finalInfo
 	}
 
 	// Decode best image to calculate final metrics
@@ -574,45 +586,6 @@ func isAlreadyProcessed(src string) bool {
 	return false
 }
 
-
-func checkDependencies() error {
-	// No external dependencies required (all native Go for JPEG)
-	return nil
-}
-
-func countMetadata(path string) int {
-	data, err := os.ReadFile(path)
-	if err != nil { return 0 }
-	count := 0
-	
-	// JPEG version: count APP or COM segments properly
-	for i := 0; i < len(data)-1; {
-		if data[i] == 0xFF {
-			marker := data[i+1]
-			if marker == 0x00 || marker == 0xFF {
-				i++
-				continue
-			}
-			if marker == 0xD8 { // SOI
-				i += 2
-				continue
-			}
-			if marker == 0xDA || marker == 0xC0 || marker == 0xC2 { // SOS or SOF
-				break
-			}
-			if i+3 >= len(data) { break }
-			length := int(data[i+2])<<8 | int(data[i+3])
-			
-			if marker >= 0xE0 && marker <= 0xFE {
-				count++
-			}
-			i += 2 + length
-		} else {
-			i++
-		}
-	}
-	return count
-}
 
 func copyFile(src, dst string) (err error) {
 	in, err := os.Open(src)
